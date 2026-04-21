@@ -18,6 +18,7 @@ import {
   PulseAPI,
   Name,
   PrivateKey,
+  ABI,
   Action,
   Transaction,
   SignedTransaction,
@@ -112,25 +113,74 @@ export class PulseSignatureProvider {
   }
 }
 
-async function buildPackedTx(
+// ABI cache — avoids re-fetching the same contract ABI within one session.
+const abiCache: Record<string, any> = {}
+
+async function resolveActions(rpc: PulseRpc, rawActions: any[]): Promise<any[]> {
+  // For each action: if data is a plain object (not hex string / Uint8Array),
+  // fetch the contract ABI and serialize the data. This matches how proton-cli's
+  // Api.transact() auto-serializes — any action, any contract, no hard-coding.
+  const resolved: any[] = []
+  for (const a of rawActions) {
+    if (a.data && typeof a.data === 'object' && !(a.data instanceof Uint8Array)) {
+      const account = typeof a.account === 'object' ? a.account.toString() : String(a.account)
+      if (!abiCache[account]) {
+        try {
+          const abiResp = await rpc.get_abi(account)
+          if (abiResp?.version) {
+            // getABI returns the ABI directly (not wrapped in {abi: ...})
+            abiCache[account] = ABI.from(abiResp)
+          }
+        } catch (e: any) {
+          // ABI fetch failed — will fall through to Action.from(a) which
+          // requires data to already be serialized. Log for debugging.
+          console.error(`ABI fetch failed for ${account}: ${e.message}`)
+        }
+      }
+      const abi = abiCache[account]
+      if (abi) {
+        resolved.push(Action.from(a, abi))
+      } else {
+        // No ABI on chain — pass as-is and hope data is already serialized
+        resolved.push(Action.from(a))
+      }
+    } else {
+      resolved.push(Action.from(a))
+    }
+  }
+  return resolved
+}
+
+// Derive ref_block_prefix from head_block_id hex (proven in heartbeat.mjs).
+// The get_block response's ref_block_prefix is sometimes 0 or missing on
+// PulseVM, so we compute it ourselves from the block id the same way the
+// working heartbeat does.
+function refPrefixFromId(headIdHex: string): number {
+  const b0 = parseInt(headIdHex.slice(16, 18), 16)
+  const b1 = parseInt(headIdHex.slice(18, 20), 16)
+  const b2 = parseInt(headIdHex.slice(20, 22), 16)
+  const b3 = parseInt(headIdHex.slice(22, 24), 16)
+  return ((b3 << 24) | (b2 << 16) | (b1 << 8) | b0) >>> 0
+}
+
+async function buildAndSign(
   rpc: PulseRpc,
   signer: PulseSignatureProvider,
   txSpec: {actions: any[], context_free_actions?: any[], transaction_extensions?: any[]},
-  opts: {expireSeconds?: number, useLastIrreversible?: boolean} = {},
-): Promise<PackedTransaction> {
+  opts: {expireSeconds?: number} = {},
+): Promise<{hex: string, signatures: string[]}> {
   const info = await rpc.get_info()
   const expireSeconds = opts.expireSeconds ?? 120
-  const refBlock = opts.useLastIrreversible
-    ? await rpc.get_block(info.last_irreversible_block_num)
-    : await rpc.get_block(info.head_block_num)
+  const headIdHex = String(info.head_block_id)
+  const headNum = Number(info.head_block_num)
 
-  const actions = txSpec.actions.map((a: any) => Action.from(a))
+  const actions = await resolveActions(rpc, txSpec.actions)
   const tx = Transaction.from({
     expiration: new Date(Date.now() + expireSeconds * 1000)
       .toISOString()
-      .replace(/\.\d+Z$/, ''),
-    ref_block_num: (refBlock.block_num ?? refBlock.number) & 0xFFFF,
-    ref_block_prefix: refBlock.ref_block_prefix ?? 0,
+      .slice(0, 19),
+    ref_block_num: headNum & 0xFFFF,
+    ref_block_prefix: refPrefixFromId(headIdHex),
     max_net_usage_words: 0,
     max_cpu_usage_ms: 0,
     delay_sec: 0,
@@ -142,16 +192,15 @@ async function buildPackedTx(
   const chainId = rpc.chainId
   if (!chainId) throw new Error('PulseRpc missing chain_id — set in constants.ts network entry')
 
-  const digest = (tx as any).signingDigest(chainId)
-  const digestU8 = digest instanceof Uint8Array ? digest : new Uint8Array(digest)
-  const signatures = signer.signDigest(digestU8)
-
+  const signatures = signer.signDigest((tx as any).signingDigest(chainId))
   const signed = SignedTransaction.from({
     ...(tx as any),
     signatures,
     context_free_data: [],
   } as any)
-  return PackedTransaction.fromSigned(signed, 0 /* compression = none */)
+  const packed = PackedTransaction.fromSigned(signed, 0)
+  const hex = Buffer.from((packed as any).packed_trx.array ?? (packed as any).packed_trx).toString('hex')
+  return {hex, signatures}
 }
 
 // ----------------------------------------------------------------------------
@@ -194,20 +243,39 @@ class Network {
 
   async transact(
     transaction: any,
-    args: { endpoint?: string, expireSeconds?: number, useLastIrreversible?: boolean } = {},
+    args: { endpoint?: string, expireSeconds?: number } = {},
   ): Promise<any> {
     const rpc = args.endpoint
       ? new PulseRpc(new PulseAPI(args.endpoint), this.rpc.chainId)
       : this.rpc
     const signer = await this.getSignatureProvider()
-    const packed = await buildPackedTx(rpc, signer, transaction, {
+    const {hex, signatures} = await buildAndSign(rpc, signer, transaction, {
       expireSeconds: args.expireSeconds ?? 120,
-      useLastIrreversible: args.useLastIrreversible ?? true,
     })
-    const apiAny = rpc.api as any
-    const result = await apiAny.pushTransaction(packed)
+
+    // Call pulsevm.issueTx directly (same as heartbeat.mjs). The
+    // PulseAPI.pushTransaction() path has a PackedTransaction JSON
+    // serialization mismatch; this bypasses it.
+    const rpcUrl = this.network.endpoints[0]
+    const resp: any = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'pulsevm.issueTx',
+        params: {
+          signatures,
+          compression: 0,
+          packed_trx: hex,
+          packed_context_free_data: '00',
+        },
+      }),
+    }).then((r: any) => r.json())
+
+    if (resp.error) {
+      throw new Error(`Chain rejected: ${JSON.stringify(resp.error)}`)
+    }
     return {
-      transaction_id: typeof result === 'string' ? result : result?.tx_id ?? result,
+      transaction_id: resp.result?.txID ?? resp.result,
     }
   }
 
