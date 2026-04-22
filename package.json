@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "author": "protonnz (forked from @jafri's proton-cli)",
   "bin": {
-    "pulse": "./bin/run"
+    "pulse-ts": "./bin/run"
   },
   "bugs": "https://github.com/paulgnz/pulse-cli-ts/issues",
   "files": [
@@ -24,7 +24,7 @@
   "main": "lib/index.js",
   "oclif": {
     "commands": "./lib/commands",
-    "bin": "pulse",
+    "bin": "pulse-ts",
     "plugins": [
       "@oclif/plugin-help"
     ],

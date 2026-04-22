@@ -28,7 +28,7 @@ git clone https://github.com/paulgnz/pulse-cli-ts
 cd pulse-cli-ts
 npm install
 npx tsc -b
-./bin/run --help
+pulse-ts --help
 ```
 
 (Once stable, this will publish to npm under `@metalblockchain/pulse-cli` so you can `npm i -g` it.)
@@ -38,9 +38,9 @@ npx tsc -b
 Default network is **A-Chain Alpine** (the PulseVM testnet on Tahoe), public RPC `https://a-chain-alpine.metalblockchain.org/ext/bc/6v9NieZiX3e8eQz3CyJMtXB6YzV2RtnxcRyLAmSgFWWk5Qs6y/rpc`.
 
 ```bash
-./bin/run chain:info       # fetch chain head
-./bin/run account pulsebp1 # render an account with permissions + resources
-./bin/run network          # show current RPC endpoint
+pulse-ts chain:info       # fetch chain head
+pulse-ts account pulsebp1 # render an account with permissions + resources
+pulse-ts network          # show current RPC endpoint
 ```
 
 ## Working subcommands
@@ -56,10 +56,10 @@ Default network is **A-Chain Alpine** (the PulseVM testnet on Tahoe), public RPC
 
 ```bash
 # Add your private key (encrypted on disk under your password)
-./bin/run key:add
+pulse-ts key:add
 
 # Push a transfer — signs in-process, no separate keosd daemon required
-./bin/run transfer alice bob "1.0000 XPR" "gm"
+pulse-ts transfer alice bob "1.0000 XPR" "gm"
 ```
 
 ## Known gaps
