@@ -4,22 +4,26 @@
 
 ## Canonical CLI vs this fork
 
-Metallicus ships an official `pulse` CLI written in Rust as part of every [pulsevm release](https://github.com/MetalBlockchain/pulsevm/releases) ([source: `crates/pulse`](https://github.com/MetalBlockchain/pulsevm/tree/main/crates/pulse)). Today it's mostly the wallet-management flow against a local `pulse-keosd` daemon — production BP key management lives there.
+Metallicus ships an official `pulse` CLI written in Rust as part of every [pulsevm release](https://github.com/MetalBlockchain/pulsevm/releases) ([source: `crates/pulse`](https://github.com/MetalBlockchain/pulsevm/tree/main/crates/pulse)). It's the production / reference tool — only published as **Linux** binaries, and builds from source pull in LLVM 21 + Boost (via the Wasmer/Chainbase deps).
 
-`pulse-cli-ts` is **complementary**, not competing. The two surfaces today don't overlap:
+`pulse-ts` is **complementary**, not competing: the **proton-cli-shaped, cross-platform** path. It runs on macOS / Windows / Linux via Node with no build — the canonical Rust CLI's missing cross-platform story. As of today the two are at rough feature parity on the core operator/dev surface:
 
-| Capability | Canonical `pulse` (Rust) | `pulse-cli-ts` |
+| Capability | Canonical `pulse` (Rust, Linux) | `pulse-ts` (Node, any OS) |
 |---|---|---|
-| Generate keypair offline | `create key --to-console` | (use `pulsevm-js` directly) |
-| Create account on chain | `create account` | (defer to canonical) |
-| Wallet daemon (keosd) | `wallet:*` against `pulse-keosd` | not its lane |
-| Read chain head / info | not yet | `chain:info` |
-| Render an account | not yet | `account <name>` |
-| Read contract tables | not yet | `table:rows` |
-| Push `pulse.token::transfer` | not yet | `transfer <from> <to> <qty> [memo]` |
-| Native JS scripting | n/a | yes — same lib it's built on |
+| Chain head / info | `get info` | ✅ `chain:info` |
+| Render an account | `get account` | ✅ `account <name>` |
+| Transfer tokens | `transfer` | ✅ `transfer` |
+| Create account on chain | `create account` | ✅ `create-account` |
+| Deploy WASM (`setcode`) | `set code` | ✅ `set-code` |
+| Set contract ABI (`setabi`) | `set abi` | ✅ `set-abi` |
+| Read contract tables | — | ✅ `table:rows` |
+| Switch network / endpoint | `set url` | ✅ `network` / `endpoint` |
+| Generate keypair offline | `create key` | — (use `pulsevm-js` directly) |
+| Wallet | keosd daemon (`wallet:*`) | in-process encrypted keystore (`key:*`) — no daemon |
+| Native JS scripting | — | ✅ same lib it's built on |
+| Install | build from source / Linux binary | `npm i` — Mac/Windows/Linux |
 
-XPR developers porting dapps and scripts → use this. Production wallet / signing daemon → canonical `pulse` + `pulse-keosd`. As the canonical CLI gains read+transfer parity, this fork can fold down to whatever's still missing upstream.
+XPR developers porting dapps and scripts, or anyone on a Mac → use `pulse-ts`. Production BP key management with a hardware-backed signing daemon → canonical `pulse` + `pulse-keosd`.
 
 ## Install
 
@@ -31,7 +35,7 @@ npx tsc -b
 pulse-ts --help
 ```
 
-(Once stable, this will publish to npm under `@metalblockchain/pulse-cli` so you can `npm i -g` it.)
+(Once stable it'll publish to npm for a one-line `npm i -g` on any OS — final scope TBD with Metallicus, `@metalblockchain/pulse-cli` or a community scope.)
 
 ## Quick start
 
@@ -45,11 +49,19 @@ pulse-ts network          # show current RPC endpoint
 
 ## Working subcommands
 
+Reads:
 - `chain:info` / `chain:get` — via `pulsevm.getInfo`
 - `account <name>` — via `pulsevm.getAccount`; renders permissions + resource table
-- `network` / `endpoint` — config state
 - `table:rows <code> <scope> <table>` — via `pulsevm.getTableRows`
-- `transfer <from> <to> <quantity> [memo]` — pushes `pulse.token::transfer`, validated end-to-end against A-Chain Alpine
+- `network` / `endpoint` — config state
+
+Writes (sign in-process from the local keystore, no keosd daemon):
+- `transfer <from> <to> <quantity> [memo]` — `pulse.token::transfer`
+- `create-account <name> <owner-key> [active-key]` — `pulse::newaccount`
+- `set-code <account> <wasm-file>` — `pulse::setcode` (deploy a WASM contract)
+- `set-abi <account> <abi-file>` — `pulse::setabi` (JSON ABI serialized to binary)
+
+Keys:
 - `key:add / key:get / key:lock / key:unlock / key:reset` — local encrypted keystore
 
 ## Sending a signed transfer
@@ -61,6 +73,20 @@ pulse-ts key:add
 # Push a transfer — signs in-process, no separate keosd daemon required
 pulse-ts transfer alice bob "1.0000 XPR" "gm"
 ```
+
+## Deploying a contract
+
+```bash
+# 1. Create the contract account (signer must hold creator@active — pulse@active
+#    on Alpine, where account creation is gated to the system account)
+pulse-ts create-account myapp PUB_K1_<owner> [PUB_K1_<active>]
+
+# 2. Build your contract to WASM with pulse-cdt-rust, then deploy:
+pulse-ts set-code myapp ./target/wasm32-unknown-unknown/release/myapp.wasm
+pulse-ts set-abi  myapp ./target/myapp.abi.json
+```
+
+`create-account`, `set-code`, and `set-abi` all go through the auto-ABI `transact()` path — the on-chain `pulse` ABI defines `newaccount` / `setcode` / `setabi`, so no embedded ABI is needed.
 
 ## Known gaps
 
