@@ -40,7 +40,8 @@
     "testbase": "nyc --extension .ts mocha --forbid-only \"test/**/*.test.ts\"",
     "test": "npm run testbase -- \"test/**/*.test.ts\"",
     "testsome": "nyc --extension .ts mocha --forbid-only \"test/**/*.test.ts\" --exclude \"**/boilerplate.test.ts\"",
-    "version": "npx oclif readme && git add README.md"
+    "version": "npx oclif readme && git add README.md",
+    "postinstall": "patch-package"
   },
   "types": "lib/index.d.ts",
   "dependencies": {
@@ -98,6 +99,7 @@
     "mocha": "^9.2.2",
     "nyc": "^15.1.0",
     "oclif": "^3.0.0",
+    "patch-package": "^8.0.1",
     "rxjs": "^7.5.5",
     "shx": "^0.3.4",
     "ts-node": "^8",
