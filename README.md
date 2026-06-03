@@ -57,9 +57,11 @@ Reads:
 
 Writes (sign in-process from the local keystore, no keosd daemon):
 - `transfer <from> <to> <quantity> [memo]` — `pulse.token::transfer`
-- `create-account <name> <owner-key> [active-key]` — `pulse::newaccount`
+- `create-account <name> <owner-key> [active-key]` — bundles `newaccount` + `buyrambsys` + `delegatebw` so the new account is usable (has RAM + CPU/NET). Flags: `--ram-bytes`, `--cpu`, `--net`, `--no-resources`.
 - `set-code <account> <wasm-file>` — `pulse::setcode` (deploy a WASM contract)
 - `set-abi <account> <abi-file>` — `pulse::setabi` (JSON ABI serialized to binary)
+- `update-auth <account> <permission> <parent> <key>` — `pulse::updateauth` (rotate/set a permission's key)
+- `push-action <account> <action> <json-data>` — push any contract action (the catch-all, like `cleos push action`)
 
 Keys:
 - `key:add / key:get / key:lock / key:unlock / key:reset` — local encrypted keystore
@@ -91,7 +93,7 @@ pulse-ts set-abi  myapp ./target/myapp.abi.json
 ## Known gaps
 
 - `block:get` — pulsevm-js's Serializer chokes on the `get_block_response` shape. Not diagnosed.
-- Most legacy proton-cli commands (`msig`, `contract set`, `permission`, `ram`, `psr`, `faucet`, `scan`, `transaction:get`) were dropped to ship a clean compile. Re-add as the use case arises.
+- Contract + account management is covered (`create-account`, `set-code`/`set-abi`, `update-auth`, `push-action`). Still not ported from proton-cli: `msig`, `ram` (market buy/sell), `psr`, `faucet`, `scan`, `transaction:get`. Re-add as the use case arises — `push-action` covers most one-off needs in the meantime.
 
 ## Architecture
 
