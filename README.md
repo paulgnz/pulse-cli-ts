@@ -16,7 +16,7 @@ Metallicus ships an official `pulse` CLI written in Rust as part of every [pulse
 | Create account on chain | `create account` | ✅ `create-account` |
 | Deploy WASM (`setcode`) | `set code` | ✅ `set-code` |
 | Set contract ABI (`setabi`) | `set abi` | ✅ `set-abi` |
-| Read contract tables | — | ✅ `table:rows` |
+| Read contract tables | — | ✅ `table` |
 | Switch network / endpoint | `set url` | ✅ `network` / `endpoint` |
 | Generate keypair offline | `create key` | — (use `pulsevm-js` directly) |
 | Wallet | keosd daemon (`wallet:*`) | in-process encrypted keystore (`key:*`) — no daemon |
@@ -52,7 +52,7 @@ pulse-ts network          # show current RPC endpoint
 Reads:
 - `chain:info` / `chain:get` — via `pulsevm.getInfo`
 - `account <name>` — via `pulsevm.getAccount`; renders permissions + resource table
-- `table:rows <code> <scope> <table>` — via `pulsevm.getTableRows`
+- `table <contract> <table> <scope>` — via `pulsevm.getTableRows`
 - `network` / `endpoint` — config state
 
 Writes (sign in-process from the local keystore, no keosd daemon):
