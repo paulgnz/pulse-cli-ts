@@ -13,9 +13,9 @@ Last run: 2026-06-03 (chain live, head ~237k)
 | `chain:list` | ✅ | lists configured networks |
 | `chain:get` | ⬜ | not yet run |
 | `chain:set <chain>` | ⬜ | mutates config — test last |
-| `account <name>` | ⚠️ | works, but leaks pulsevm-js debug noise (`ko {…}`) — cosmetic |
+| `account <name>` | ✅ | clean (pulsevm-js debug log patched out) |
 | `table <contract> <table> <scope>` | ✅ | NOTE: arg order is contract/table/scope, **not** `table:rows code scope table` |
-| `block:get <n>` | ❌ | dumps Serializer internals instead of the block (pulsevm-js `get_block_response` issue) |
+| `block:get <n>` | ✅ | fixed — shim calls RPC directly with string block id, returns raw JSON (bypasses broken typed decode) |
 | `network` | ✅ | |
 | `endpoint` | ✅ | |
 | `endpoint:set <url>` / `endpoint:default` | ⬜ | not yet run |
@@ -41,12 +41,12 @@ Last run: 2026-06-03 (chain live, head ~237k)
 
 ## Known cleanups (cosmetic, not blocking)
 
-- **Debug-log leakage from pulsevm-js** — `account` prints `ko {…}` and `transact()`
-  prints `b { array: Uint8Array … }`. These are stray `console.log`s inside
-  `@metalblockchain/pulsevm-js`, not our code. Fix: filter in our commands, or
-  PR pulsevm-js to drop the logs.
-- **`block:get`** — pulsevm-js Serializer can't decode `get_block_response`.
-  Either fix the decode path or hide the command until it works.
+- ~~Debug-log leakage from pulsevm-js~~ — **FIXED.** Stray `console.log(rv)` in
+  `Authority.from()` patched out via patch-package (committed patch +
+  postinstall). Source fix pushed to our pulsevm-js fork branch
+  `fix/remove-authority-debug-log`, ready to PR upstream.
+- ~~`block:get` broken~~ — **FIXED.** Shim now calls the RPC directly with a
+  string block id and returns raw JSON.
 
 ## Definition of done
 

@@ -55,7 +55,15 @@ export class PulseRpc {
 
   async get_block(arg: {block_num_or_id: number | string} | number | string): Promise<any> {
     const key = typeof arg === 'object' ? arg.block_num_or_id : arg
-    return toPlain(await this.api.getBlock(key as any))
+    // pulsevm.getBlock requires block_num_or_id as a STRING (it rejects a raw
+    // integer), and pulsevm-js's typed GetBlockResponse decode chokes on the
+    // real block shape. So call the RPC directly and return the raw JSON —
+    // the CLI just displays it.
+    const apiAny = this.api as any
+    return apiAny.callRpc({
+      methodName: 'pulsevm.getBlock',
+      params: { block_num_or_id: String(key) },
+    })
   }
 
   async get_table_rows(params: any): Promise<any> {
