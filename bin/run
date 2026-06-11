@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 
+// pulsevm-js's bundled randomness shim (brorand) only finds a secure RNG via
+// self.crypto — its node path was stubbed out at bundling time, so key
+// generation dies with "Cannot read properties of null (reading 'getBytes')".
+// Node >= 19 exposes WebCrypto on globalThis; alias `self` to it before any
+// pulsevm-js import happens.
+if (typeof globalThis.self === 'undefined') globalThis.self = globalThis
+
 const oclif = require('@oclif/core')
 
 oclif.run().then(require('@oclif/core/flush')).catch(require('@oclif/core/handle'))
