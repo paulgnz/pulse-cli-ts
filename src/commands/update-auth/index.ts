@@ -34,31 +34,50 @@ const UPDATEAUTH_ABI = ABI.from({
 })
 
 export default class UpdateAuth extends Command {
-  static description = 'Set an account permission to a single key via pulse::updateauth'
+  static description = 'Set an account permission to a single key OR an account authority via pulse::updateauth'
 
   static examples = [
     '$ pulse-ts update-auth myacct active owner PUB_K1_...',
     '$ pulse-ts update-auth myacct owner "" PUB_K1_...',
+    '$ pulse-ts update-auth myacct owner "" protonnz@active   # delegate owner to an account',
   ]
 
   static args = [
     { name: 'account', required: true, description: 'Account to modify' },
     { name: 'permission', required: true, description: 'Permission to set (e.g. active, owner)' },
-    { name: 'parent', required: true, description: 'Parent permission ("" for owner, "owner" for active)' },
-    { name: 'key', required: true, description: 'New public key (PUB_K1_...)' },
+    { name: 'parent', required: true, description: 'Parent permission ("owner" for active; use "root" or "-" for the empty owner parent)' },
+    { name: 'key', required: true, description: 'New PUB_K1_... key, or an actor@permission account authority (e.g. protonnz@active)' },
   ]
 
   static flags = {
     'sign-permission': flags.string({ description: 'Permission to authorize with (defaults to the permission being changed)' }),
+    code: flags.string({ description: 'Also grant a code authority (actor@permission, e.g. myacct@pulse.code) alongside the key — required for a contract account to send inline actions under its own permission' }),
   }
 
   async run() {
     const { args, flags: f } = this.parse(UpdateAuth)
-    const auth = { threshold: 1, keys: [{ key: args.key, weight: 1 }], accounts: [], waits: [] }
+    // The owner permission has an empty parent (""), but oclif drops a literal ""
+    // positional arg — accept "root"/"-"/"null" as sentinels for the empty parent.
+    const parent = ['root', '-', 'null', '""', "''"].includes(args.parent) ? '' : args.parent
+    // The new authority is either a single key, a single account permission
+    // (actor@permission), or — with --code — a key PLUS a code authority. The
+    // accounts array must be sorted by {actor, permission}; we only ever add one.
+    const acctAuth = (spec: string) => {
+      const [actor, permission = 'active'] = spec.split('@')
+      return { permission: { actor, permission }, weight: 1 }
+    }
+    const auth = args.key.includes('@')
+      ? { threshold: 1, keys: [], accounts: [acctAuth(args.key)], waits: [] }
+      : {
+          threshold: 1,
+          keys: [{ key: args.key, weight: 1 }],
+          accounts: f.code ? [acctAuth(f.code)] : [],
+          waits: [],
+        }
     const data = (Serializer.encode({
       abi: UPDATEAUTH_ABI,
       type: 'updateauth',
-      object: { account: args.account, permission: args.permission, parent: args.parent, auth },
+      object: { account: args.account, permission: args.permission, parent, auth },
     }) as any).hexString
 
     const signPerm = f['sign-permission'] || args.permission

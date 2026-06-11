@@ -18,7 +18,7 @@ Metallicus ships an official `pulse` CLI written in Rust as part of every [pulse
 | Set contract ABI (`setabi`) | `set abi` | ✅ `set-abi` |
 | Read contract tables | — | ✅ `table` |
 | Switch network / endpoint | `set url` | ✅ `network` / `endpoint` |
-| Generate keypair offline | `create key` | — (use `pulsevm-js` directly) |
+| Generate keypair offline | `create key` | ✅ `create-key` |
 | Wallet | keosd daemon (`wallet:*`) | in-process encrypted keystore (`key:*`) — no daemon |
 | Native JS scripting | — | ✅ same lib it's built on |
 | Install | build from source / Linux binary | `npm i` — Mac/Windows/Linux |
@@ -64,6 +64,7 @@ Writes (sign in-process from the local keystore, no keosd daemon):
 - `push-action <account> <action> <json-data>` — push any contract action (the catch-all, like `cleos push action`)
 
 Keys:
+- `create-key` — generate a new keypair offline (Web Crypto secure random). `--add` imports it into the wallet; `--type R1` for an R1 key.
 - `key:add / key:get / key:lock / key:unlock / key:reset` — local encrypted keystore
 
 ## Sending a signed transfer
@@ -92,7 +93,7 @@ pulse-ts set-abi  myapp ./target/myapp.abi.json
 
 ## Known gaps
 
-- `block:get` — pulsevm-js's Serializer chokes on the `get_block_response` shape. Not diagnosed.
+- `block:get` — pulsevm-js's Serializer chokes on the `get_block_response` shape: three fields PulseVM omits (`schedule_version`, `producer_signature`, `ref_block_prefix`) are required in the type. Fixed in [pulsevm-js#4](https://github.com/MetalBlockchain/pulsevm-js/pulls) (made optional); ungated once that's published and the dep is bumped.
 - Contract + account management is covered (`create-account`, `set-code`/`set-abi`, `update-auth`, `push-action`). Still not ported from proton-cli: `msig`, `ram` (market buy/sell), `psr`, `faucet`, `scan`, `transaction:get`. Re-add as the use case arises — `push-action` covers most one-off needs in the meantime.
 
 ## Architecture

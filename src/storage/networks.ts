@@ -121,6 +121,85 @@ export class PulseSignatureProvider {
   }
 }
 
+// ----------------------------------------------------------------------------
+// Required-key selection
+// ----------------------------------------------------------------------------
+// PulseVM rejects transactions carrying signatures from keys the declared
+// authorizations don't require ("transaction bears irrelevant signatures"),
+// and PulseSignatureProvider signs with EVERY wallet key. So before signing,
+// resolve which wallet keys can actually satisfy the tx's actor@permission
+// pairs and sign with only those. PulseVM JSON-RPC does not expose
+// get_required_keys, so this approximates it client-side via get_account.
+
+// Public keys that can satisfy actor@permission: keys on the named permission
+// (plus owner, which always satisfies a child permission), following
+// account-authority delegations (e.g. paul123@owner -> protonnz@active),
+// depth-limited to avoid cycles.
+async function resolveAuthPubkeys(
+  rpc: PulseRpc,
+  actor: string,
+  permission: string,
+  depth = 0,
+  seen = new Set<string>(),
+): Promise<Set<string>> {
+  const out = new Set<string>()
+  const tag = `${actor}@${permission}`
+  if (depth > 2 || seen.has(tag)) return out
+  seen.add(tag)
+  let acct: any
+  try {
+    acct = await rpc.get_account(actor)
+  } catch {
+    return out // unknown account / RPC hiccup — caller falls back
+  }
+  const perms: any[] = acct?.permissions ?? []
+  const candidates = perms.filter((p: any) => p.perm_name === permission || p.perm_name === 'owner')
+  for (const p of candidates) {
+    for (const k of p.required_auth?.keys ?? []) out.add(String(k.key))
+    for (const a of p.required_auth?.accounts ?? []) {
+      const sub = await resolveAuthPubkeys(
+        rpc, String(a.permission.actor), String(a.permission.permission), depth + 1, seen)
+      sub.forEach(x => out.add(x))
+    }
+  }
+  return out
+}
+
+// Filter wallet private keys down to the ones the transaction actually needs.
+// If resolution fails outright (network error) fall back to all keys (old
+// behavior); if it succeeds but no wallet key matches, throw a clear error
+// instead of letting the chain reject with "irrelevant signatures".
+export async function selectRequiredKeys(rpc: PulseRpc, privateKeys: string[], actions: any[]): Promise<string[]> {
+  if (privateKeys.length <= 1) return privateKeys
+  const auths = new Map<string, { actor: string, permission: string }>()
+  for (const a of actions ?? []) {
+    for (const az of a.authorization ?? []) {
+      const actor = String(typeof az.actor === 'object' ? az.actor.toString() : az.actor)
+      const permission = String(typeof az.permission === 'object' ? az.permission.toString() : az.permission)
+      auths.set(`${actor}@${permission}`, { actor, permission })
+    }
+  }
+  if (auths.size === 0) return privateKeys
+  const required = new Set<string>()
+  try {
+    for (const { actor, permission } of auths.values()) {
+      const pubs = await resolveAuthPubkeys(rpc, actor, permission)
+      pubs.forEach(k => required.add(k))
+    }
+  } catch {
+    return privateKeys
+  }
+  if (required.size === 0) return privateKeys // resolved nothing — keep old behavior
+  const matching = privateKeys.filter(pk => required.has(PrivateKey.from(pk).toPublic().toString()))
+  if (matching.length === 0) {
+    const held = privateKeys.map(pk => PrivateKey.from(pk).toPublic().toString()).join(', ')
+    throw new Error(
+      `No wallet key satisfies ${[...auths.keys()].join(', ')}. ` +
+      `Wallet holds: ${held}. Add the required key with "key:add".`)
+  }
+  return matching
+}
+
 // ABI cache — avoids re-fetching the same contract ABI within one session.
 const abiCache: Record<string, any> = {}
 
@@ -230,8 +309,13 @@ class Network {
     const chain = this.chain
     const overrides = (config.get('endpoints') as Endpoints[]) || []
     const override = overrides.find(e => e.chain === chain)
-    if (override) return override
     const stock = networks.find(n => n.chain === chain)
+    if (override) {
+      // An override only carries endpoints — inherit everything else
+      // (chainId in particular) from the stock entry, or PulseRpc errors
+      // "missing chain_id" the moment a custom endpoint is set.
+      return stock ? {...stock, ...override} : override
+    }
     if (!stock) {
       throw new Error(`Unknown chain "${chain}". Known: ${networks.map(n => n.chain).join(', ')}`)
     }
@@ -256,7 +340,11 @@ class Network {
     const rpc = args.endpoint
       ? new PulseRpc(new PulseAPI(args.endpoint), this.rpc.chainId)
       : this.rpc
-    const signer = await this.getSignatureProvider()
+    // Sign with only the wallet keys the tx's authorizations require —
+    // PulseVM rejects extra signatures as "irrelevant".
+    const privateKeys = await passwordManager.getPrivateKeys()
+    const signer = new PulseSignatureProvider(
+      await selectRequiredKeys(rpc, privateKeys, transaction.actions ?? []))
     const {hex, signatures} = await buildAndSign(rpc, signer, transaction, {
       expireSeconds: args.expireSeconds ?? 120,
     })

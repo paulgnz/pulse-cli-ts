@@ -17,22 +17,31 @@ export default class PushAction extends Command {
   ]
 
   static flags = {
-    actor: flags.string({ char: 'a', description: 'Authorizing actor (defaults to the contract account)' }),
+    actor: flags.string({ char: 'a', description: 'Authorizing actor(s) — comma-separated for multi-auth actions (defaults to the contract account)' }),
     permission: flags.string({ char: 'p', default: 'active', description: 'Signing permission' }),
   }
 
   async run() {
     const { args, flags: f } = this.parse(PushAction)
     const data = JSON.parse(args.data)
-    const actor = f.actor || args.account
+    // accept a comma-separated list of actors for actions needing multiple authorizations
+    // Comma-separated authorizations; each entry is "actor" or "actor@permission".
+    // --permission is the fallback when an entry omits its own permission.
+    //   e.g.  -a protonnz3,pulse                 -> both @active (default)
+    //         -a 'protonnz3@owner,pulse@active'  -> mixed permissions
+    const auths = (f.actor || args.account).split(',').map((a: string) => a.trim()).filter(Boolean)
+      .map((a: string) => {
+        const [actor, permission = f.permission] = a.split('@')
+        return { actor, permission }
+      })
 
-    CliUx.ux.action.start(`${cyan(args.account)}::${cyan(args.action)} (auth ${actor}@${f.permission})`)
+    CliUx.ux.action.start(`${cyan(args.account)}::${cyan(args.action)} (auth ${auths.map((x: {actor: string, permission: string}) => `${x.actor}@${x.permission}`).join(', ')})`)
 
     const result = await network.transact({
       actions: [{
         account: args.account,
         name: args.action,
-        authorization: [{ actor, permission: f.permission }],
+        authorization: auths,
         data,
       }],
     })
