@@ -17,7 +17,9 @@ export default class SetEnpoint extends Command {
   async run() {
     const { args } = this.parse(SetEnpoint);
 
-    if (!args.chain) {
+    // No endpoint passed -> interactive discovery. (Was `args.chain`, which
+    // never exists on this command, so an explicit endpoint was ignored.)
+    if (!args.endpoint) {
       const chain = network.network.chain;
       const chainDiscoveryService = EP_DISCOVERY.find(
         (api: ChainDiscoveryService) => api.chain === chain
@@ -40,7 +42,9 @@ export default class SetEnpoint extends Command {
       ]);
       args.endpoint = responses.endpoint;
     }
-    network.overrideEndpoint(args.endpoint);
+    // inquirer's checkbox returns an array; a CLI arg is a single string.
+    const list = Array.isArray(args.endpoint) ? args.endpoint : [args.endpoint];
+    network.overrideEndpoint(list);
   }
 
   async catch(e: Error) {
