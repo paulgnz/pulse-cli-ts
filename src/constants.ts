@@ -14,7 +14,15 @@ export const networks = [
     // pulsevm.* at / (Antelope /v1/chain/* via the gateway). Hyperion:
     // https://xpr-hyperion-testnet.pulsevm.dev
     chain: "pulse-1to1",
-    endpoints: ["https://xpr-rpc-testnet.pulsevm.dev"],
+    // [0] = public gateway/reader (.95). The rest are per-validator raw pulsevm.*
+    // RPC (:8645) for spreading load during fleet stress tests — pick one with
+    // `endpoint:set`. (.59 is intentionally omitted — reserved for the oracle.)
+    endpoints: [
+      "https://xpr-rpc-testnet.pulsevm.dev",
+      "http://5.75.243.23:8645",
+      "http://178.104.151.161:8645",
+      "http://89.167.7.250:8645",
+    ],
     chainId:
       "71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abeaf3d3dd",
   },
