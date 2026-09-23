@@ -24,10 +24,14 @@ import {
   SignedTransaction,
   PackedTransaction,
 } from '@metalblockchain/pulsevm-js'
-import {green} from 'colors'
+import {green, yellow} from 'colors'
 import {networks} from '../constants'
 import {config} from './config'
 import passwordManager from './passwordManager'
+import {resolveSystemAccount} from './systemAccount'
+import {ChainRejection} from '../utils/chainError'
+import {selectRequiredKeys} from '../utils/keySelection'
+import {mergeEndpointOverride, resolveSigningChainId} from '../utils/chainId'
 
 type Endpoints = {
   chain: string;
@@ -40,6 +44,12 @@ type Endpoints = {
 // ----------------------------------------------------------------------------
 export class PulseRpc {
   constructor(public readonly api: PulseAPI, public chainId?: string) {}
+
+  // Raw JSON-RPC call returning the plain JSON result (no typed decode).
+  async call(method: string, params: any = {}): Promise<any> {
+    const apiAny = this.api as any
+    return toPlain(await apiAny.callRpc({ methodName: method, params }))
+  }
 
   async get_info(): Promise<any> {
     return toPlain(await this.api.getInfo())
@@ -121,84 +131,8 @@ export class PulseSignatureProvider {
   }
 }
 
-// ----------------------------------------------------------------------------
-// Required-key selection
-// ----------------------------------------------------------------------------
-// PulseVM rejects transactions carrying signatures from keys the declared
-// authorizations don't require ("transaction bears irrelevant signatures"),
-// and PulseSignatureProvider signs with EVERY wallet key. So before signing,
-// resolve which wallet keys can actually satisfy the tx's actor@permission
-// pairs and sign with only those. PulseVM JSON-RPC does not expose
-// get_required_keys, so this approximates it client-side via get_account.
-
-// Public keys that can satisfy actor@permission: keys on the named permission
-// (plus owner, which always satisfies a child permission), following
-// account-authority delegations (e.g. paul123@owner -> protonnz@active),
-// depth-limited to avoid cycles.
-async function resolveAuthPubkeys(
-  rpc: PulseRpc,
-  actor: string,
-  permission: string,
-  depth = 0,
-  seen = new Set<string>(),
-): Promise<Set<string>> {
-  const out = new Set<string>()
-  const tag = `${actor}@${permission}`
-  if (depth > 2 || seen.has(tag)) return out
-  seen.add(tag)
-  let acct: any
-  try {
-    acct = await rpc.get_account(actor)
-  } catch {
-    return out // unknown account / RPC hiccup — caller falls back
-  }
-  const perms: any[] = acct?.permissions ?? []
-  const candidates = perms.filter((p: any) => p.perm_name === permission || p.perm_name === 'owner')
-  for (const p of candidates) {
-    for (const k of p.required_auth?.keys ?? []) out.add(String(k.key))
-    for (const a of p.required_auth?.accounts ?? []) {
-      const sub = await resolveAuthPubkeys(
-        rpc, String(a.permission.actor), String(a.permission.permission), depth + 1, seen)
-      sub.forEach(x => out.add(x))
-    }
-  }
-  return out
-}
-
-// Filter wallet private keys down to the ones the transaction actually needs.
-// If resolution fails outright (network error) fall back to all keys (old
-// behavior); if it succeeds but no wallet key matches, throw a clear error
-// instead of letting the chain reject with "irrelevant signatures".
-export async function selectRequiredKeys(rpc: PulseRpc, privateKeys: string[], actions: any[]): Promise<string[]> {
-  if (privateKeys.length <= 1) return privateKeys
-  const auths = new Map<string, { actor: string, permission: string }>()
-  for (const a of actions ?? []) {
-    for (const az of a.authorization ?? []) {
-      const actor = String(typeof az.actor === 'object' ? az.actor.toString() : az.actor)
-      const permission = String(typeof az.permission === 'object' ? az.permission.toString() : az.permission)
-      auths.set(`${actor}@${permission}`, { actor, permission })
-    }
-  }
-  if (auths.size === 0) return privateKeys
-  const required = new Set<string>()
-  try {
-    for (const { actor, permission } of auths.values()) {
-      const pubs = await resolveAuthPubkeys(rpc, actor, permission)
-      pubs.forEach(k => required.add(k))
-    }
-  } catch {
-    return privateKeys
-  }
-  if (required.size === 0) return privateKeys // resolved nothing — keep old behavior
-  const matching = privateKeys.filter(pk => required.has(PrivateKey.from(pk).toPublic().toString()))
-  if (matching.length === 0) {
-    const held = privateKeys.map(pk => PrivateKey.from(pk).toPublic().toString()).join(', ')
-    throw new Error(
-      `No wallet key satisfies ${[...auths.keys()].join(', ')}. ` +
-      `Wallet holds: ${held}. Add the required key with "key:add".`)
-  }
-  return matching
-}
+// Required-key selection lives in utils/keySelection.ts (selectRequiredKeys).
+export {selectRequiredKeys}
 
 // ABI cache — avoids re-fetching the same contract ABI within one session.
 const abiCache: Record<string, any> = {}
@@ -250,22 +184,20 @@ function refPrefixFromId(headIdHex: string): number {
   return ((b3 << 24) | (b2 << 16) | (b1 << 8) | b0) >>> 0
 }
 
-async function buildAndSign(
+async function buildTransaction(
   rpc: PulseRpc,
-  signer: PulseSignatureProvider,
+  info: any,
   txSpec: {actions: any[], context_free_actions?: any[], transaction_extensions?: any[]},
   opts: {expireSeconds?: number} = {},
-): Promise<{hex: string, signatures: string[]}> {
-  const info = await rpc.get_info()
+): Promise<{tx: any, trxJson: any}> {
   const expireSeconds = opts.expireSeconds ?? 120
   const headIdHex = String(info.head_block_id)
   const headNum = Number(info.head_block_num)
+  const expiration = new Date(Date.now() + expireSeconds * 1000).toISOString().slice(0, 19)
 
   const actions = await resolveActions(rpc, txSpec.actions)
   const tx = Transaction.from({
-    expiration: new Date(Date.now() + expireSeconds * 1000)
-      .toISOString()
-      .slice(0, 19),
+    expiration,
     ref_block_num: headNum & 0xFFFF,
     ref_block_prefix: refPrefixFromId(headIdHex),
     max_net_usage_words: 0,
@@ -275,13 +207,20 @@ async function buildAndSign(
     actions,
     transaction_extensions: txSpec.transaction_extensions ?? [],
   } as any)
+  // Shape pulsevm.getRequiredKeys deserializes (action data as hex).
+  const trxJson = {
+    expiration,
+    max_net_usage_words: 0,
+    max_cpu_usage_ms: 0,
+    actions: toPlain(actions),
+  }
+  return {tx, trxJson}
+}
 
-  const chainId = rpc.chainId
-  if (!chainId) throw new Error('PulseRpc missing chain_id — set in constants.ts network entry')
-
-  const signatures = signer.signDigest((tx as any).signingDigest(chainId))
+function signTransaction(tx: any, signer: PulseSignatureProvider, chainId: string): {hex: string, signatures: string[]} {
+  const signatures = signer.signDigest(tx.signingDigest(chainId))
   const signed = SignedTransaction.from({
-    ...(tx as any),
+    ...tx,
     signatures,
     context_free_data: [],
   } as any)
@@ -302,7 +241,11 @@ class Network {
   }
 
   get chain(): string {
-    return (config.get('currentChain') as string) || 'alpine'
+    // Fresh config / unknown saved chain -> first preset (pulse-1to1).
+    const saved = config.get('currentChain') as string
+    const overrides = (config.get('endpoints') as Endpoints[]) || []
+    if (saved && (networks.some(n => n.chain === saved) || overrides.some(o => o.chain === saved))) return saved
+    return networks[0].chain
   }
 
   get network() {
@@ -310,16 +253,24 @@ class Network {
     const overrides = (config.get('endpoints') as Endpoints[]) || []
     const override = overrides.find(e => e.chain === chain)
     const stock = networks.find(n => n.chain === chain)
-    if (override) {
-      // An override only carries endpoints — inherit everything else
-      // (chainId in particular) from the stock entry, or PulseRpc errors
-      // "missing chain_id" the moment a custom endpoint is set.
-      return stock ? {...stock, ...override} : override
-    }
+    if (override) return mergeEndpointOverride(stock, override)
     if (!stock) {
       throw new Error(`Unknown chain "${chain}". Known: ${networks.map(n => n.chain).join(', ')}`)
     }
     return stock
+  }
+
+  /** The endpoint RPC calls go to (first configured endpoint). */
+  get endpoint(): string {
+    return this.network.endpoints[0]
+  }
+
+  /**
+   * The chain's system account (`pulse` or `eosio`): --system override, else
+   * the per-endpoint cached value, else auto-detected and cached.
+   */
+  async systemAccount(override?: string): Promise<string> {
+    return resolveSystemAccount(this.rpc, this.endpoint, override)
   }
 
   initialize() {
@@ -337,23 +288,30 @@ class Network {
     transaction: any,
     args: { endpoint?: string, expireSeconds?: number } = {},
   ): Promise<any> {
+    const endpoint = args.endpoint ?? this.endpoint
     const rpc = args.endpoint
       ? new PulseRpc(new PulseAPI(args.endpoint), this.rpc.chainId)
       : this.rpc
-    // Sign with only the wallet keys the tx's authorizations require —
-    // PulseVM rejects extra signatures as "irrelevant".
-    const privateKeys = await passwordManager.getPrivateKeys()
-    const signer = new PulseSignatureProvider(
-      await selectRequiredKeys(rpc, privateKeys, transaction.actions ?? []))
-    const {hex, signatures} = await buildAndSign(rpc, signer, transaction, {
+    // Sign for the chain the endpoint actually serves (its live chain_id),
+    // never a preset's — see resolveSigningChainId.
+    const info = await rpc.get_info()
+    const chainId = resolveSigningChainId(info?.chain_id, (this.network as any).chainId, endpoint,
+      msg => process.stderr.write(`${yellow('Warning:')} ${msg}\n`))
+    const {tx, trxJson} = await buildTransaction(rpc, info, transaction, {
       expireSeconds: args.expireSeconds ?? 120,
     })
+    // Sign with only the wallet keys the chain's authority checker will use —
+    // PulseVM rejects unused signatures as "irrelevant".
+    const privateKeys = await passwordManager.getPrivateKeys()
+    const signer = new PulseSignatureProvider(
+      await selectRequiredKeys(rpc, privateKeys, trxJson.actions, trxJson))
+    const {hex, signatures} = signTransaction(tx, signer, chainId)
 
     // Call pulsevm.issueTx directly (same as heartbeat.mjs). The
     // PulseAPI.pushTransaction() path has a PackedTransaction JSON
-    // serialization mismatch; this bypasses it.
-    const rpcUrl = this.network.endpoints[0]
-    const resp: any = await fetch(rpcUrl, {
+    // serialization mismatch; this bypasses it. Post to the SAME endpoint the
+    // transaction was built against.
+    const resp: any = await fetch(endpoint, {
       method: 'POST',
       headers: {'content-type': 'application/json'},
       body: JSON.stringify({
@@ -368,7 +326,7 @@ class Network {
     }).then((r: any) => r.json())
 
     if (resp.error) {
-      throw new Error(`Chain rejected: ${JSON.stringify(resp.error)}`)
+      throw new ChainRejection(resp.error)
     }
     return {
       transaction_id: resp.result?.txID ?? resp.result,
@@ -392,13 +350,38 @@ class Network {
     CliUx.ux.log(`${green('Success:')} Endpoint refreshed`)
   }
 
-  overrideEndpoint(endpointList: string[]) {
+  /**
+   * Point the current chain at other endpoint(s). The endpoint's live
+   * chain_id (pulsevm.getInfo) is stored with it, so nothing ever inherits a
+   * preset's chain_id for a different chain. Warns when it differs from the
+   * named preset's.
+   */
+  async overrideEndpoint(endpointList: string[], opts: {skipCheck?: boolean} = {}) {
     const chain = this.chain
+    const stock = networks.find(n => n.chain === chain)
+    let chainId: string | undefined
+    if (!opts.skipCheck) {
+      let info: any
+      try {
+        info = await new PulseRpc(new PulseAPI(endpointList[0])).call('pulsevm.getInfo')
+      } catch (e: any) {
+        throw new Error(
+          `Could not read pulsevm.getInfo from ${endpointList[0]} (${e?.message ?? e}). ` +
+          'Not saved. Re-run when it is reachable, or pass --skip-check (the chain_id is then read at signing time).')
+      }
+      chainId = info?.chain_id ? String(info.chain_id) : undefined
+      if (stock?.chainId && chainId && chainId !== stock.chainId) {
+        CliUx.ux.log(`${yellow('Warning:')} ${endpointList[0]} serves chain_id ${chainId}, ` +
+          `not the "${chain}" preset's ${stock.chainId}. Storing ${chainId}; transactions will be signed for it.`)
+      }
+    }
     const endpoints = (config.get('endpoints') as Endpoints[]) || []
     const filtered = endpoints.filter(ep => ep.chain !== chain)
-    filtered.push({chain, endpoints: endpointList})
+    filtered.push(chainId ? {chain, endpoints: endpointList, chainId} : {chain, endpoints: endpointList})
     config.set('endpoints', filtered)
-    CliUx.ux.log(`${green('Success:')} Endpoints set to ${endpointList} for ${chain}`)
+    this.initialize()
+    CliUx.ux.log(`${green('Success:')} Endpoints set to ${endpointList} for ${chain}` +
+      (chainId ? ` (chain_id ${chainId.slice(0, 16)}…)` : ''))
   }
 
   getEndpoint(): Endpoints[] | undefined {

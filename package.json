@@ -39,6 +39,7 @@
     "prepack": "rm -rf lib && tsc -b && npx oclif manifest && npx oclif readme && shx cp -r src/templates lib",
     "testbase": "nyc --extension .ts mocha --forbid-only \"test/**/*.test.ts\"",
     "test": "npm run testbase -- \"test/**/*.test.ts\"",
+    "test:unit": "mocha -r ts-node/register \"test/unit/**/*.test.ts\"",
     "testsome": "nyc --extension .ts mocha --forbid-only \"test/**/*.test.ts\" --exclude \"**/boilerplate.test.ts\"",
     "version": "npx oclif readme && git add README.md",
     "postinstall": "patch-package"
