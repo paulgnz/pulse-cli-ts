@@ -43,11 +43,13 @@ pulse-ts --help
 
 ## Quick start
 
-Default network is **A-Chain Alpine** (the PulseVM testnet on Tahoe), public RPC `https://a-chain-alpine.metalblockchain.org/ext/bc/6v9NieZiX3e8eQz3CyJMtXB6YzV2RtnxcRyLAmSgFWWk5Qs6y/rpc`.
+Default network (fresh config) is **`pulse-1to1`**, the XPR 1:1 demo chain, RPC `https://xpr-rpc-testnet.pulsevm.dev`. Other presets: `alpine` (A-Chain Alpine on Tahoe, `https://a-chain-alpine.metalblockchain.org/ext/bc/yQUjkpNYeiJZEn1daa7dQJbysxdXLtz1QhTTdu1mwaxoEJwiJ/rpc`) and `local` (your own MetalGo node) — switch with `chain:set <name>`.
+
+`endpoint:set <url>` reads the endpoint's `chain_id` via `pulsevm.getInfo` and stores it (warning if it differs from the preset's), and transactions are always signed for the chain_id the endpoint reports — a custom endpoint never inherits a preset's chain_id.
 
 ```bash
 pulse-ts chain:info       # fetch chain head
-pulse-ts account pulsebp1 # render an account with permissions + resources
+pulse-ts account eosio    # render an account with permissions + resources
 pulse-ts network          # show current RPC endpoint
 ```
 
@@ -89,6 +91,8 @@ pulse-ts key:add
 # Push a transfer — signs in-process, no separate keosd daemon required
 pulse-ts transfer alice bob "1.0000 XPR" "gm"
 ```
+
+Only the keys the chain will actually use are attached: the CLI asks the node (`pulsevm.getRequiredKeys`), or on nodes without it runs the same authority-checker logic locally. So a wallet holding both an account's owner key and a bot key signs `account@bot` with the bot key alone (PulseVM rejects unused signatures as "irrelevant"). A parent's key does not satisfy a declared child permission — declare `@owner` if you mean to sign with the owner key.
 
 ## Deploying a contract
 
@@ -190,7 +194,7 @@ npm run test:unit   # authority sorting/validation, native action data shapes, s
 - `src/compat/proton-js.ts` — re-exports pulsevm-js types under `@proton/js` names (`Key`, `Numeric`, `Serialize`, `RpcInterfaces`, `ApiInterfaces`) so the upstream proton-cli command files compile unchanged.
 - `src/storage/systemAccount.ts` + `src/utils/systemDetect.ts` — per-endpoint system-account resolution (flag → cache → auto-detect).
 - `src/utils/authority.ts` / `src/utils/nativeActions.ts` — chain-ordered authority building and the embedded ABI for the native auth actions.
-- `src/constants.ts` — network endpoints + chain IDs. Pre-configured for `alpine` (public RPC) and `local` (your own MetalGo node on 127.0.0.1:9650).
+- `src/constants.ts` — network presets (`pulse-1to1` default, `alpine`, `local`).
 
 ## License
 
