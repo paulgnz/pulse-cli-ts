@@ -43,7 +43,7 @@ export const config = new Conf<{
   tryKeychain: boolean;
   networks: { chain: string; endpoints: string[] }[];
   currentChain: string;
-  endpoints?: { chain: string; endpoints: string[] }[];
+  endpoints?: { chain: string; endpoints: string[]; chainId?: string }[];
 }>({
   schema,
   configName: "proton-cli",

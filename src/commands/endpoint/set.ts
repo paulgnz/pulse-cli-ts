@@ -1,4 +1,4 @@
-import { Command } from "@oclif/command";
+import { Command, flags } from "@oclif/command";
 import { CliUx, Flags } from "@oclif/core";
 import { network } from "../../storage/networks";
 import { config } from "../../storage/config";
@@ -8,14 +8,21 @@ import { nodeApiFilter } from "../../utils/nodeApiFilter";
 import { green } from "colors";
 
 export default class SetEnpoint extends Command {
-  static description = "Set current enpoint";
+  static description = "Set the RPC endpoint for the current chain (reads and stores the endpoint's chain_id)";
 
   static args = [
     { name: "endpoint", required: false, description: "Specific endpoint" },
   ];
 
+  static flags = {
+    "skip-check": flags.boolean({
+      default: false,
+      description: "Save without reading the endpoint's chain_id now (it is still read from the endpoint at signing time)",
+    }),
+  };
+
   async run() {
-    const { args } = this.parse(SetEnpoint);
+    const { args, flags: f } = this.parse(SetEnpoint);
 
     // No endpoint passed -> interactive picker. (Was `args.chain`, which
     // never exists on this command, so an explicit endpoint was ignored.)
@@ -68,7 +75,7 @@ export default class SetEnpoint extends Command {
     }
     // inquirer's checkbox returns an array; a CLI arg is a single string.
     const list = Array.isArray(args.endpoint) ? args.endpoint : [args.endpoint];
-    network.overrideEndpoint(list);
+    await network.overrideEndpoint(list, { skipCheck: f["skip-check"] });
   }
 
   async catch(e: Error) {
