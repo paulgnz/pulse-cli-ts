@@ -1,9 +1,10 @@
-import { Command, flags } from '@oclif/command'
+import { flags } from '@oclif/command'
 import { CliUx } from '@oclif/core'
 import { green, cyan } from 'colors'
 import { network } from '../../storage/networks'
+import { TxCommand, verboseFlag } from '../../core/txCommand'
 
-export default class PushAction extends Command {
+export default class PushAction extends TxCommand {
   static description = 'Push an arbitrary contract action (signs from the local wallet)'
 
   static examples = [
@@ -19,6 +20,7 @@ export default class PushAction extends Command {
   static flags = {
     actor: flags.string({ char: 'a', description: 'Authorizing actor(s) — comma-separated for multi-auth actions (defaults to the contract account)' }),
     permission: flags.string({ char: 'p', default: 'active', description: 'Signing permission' }),
+    ...verboseFlag,
   }
 
   async run() {

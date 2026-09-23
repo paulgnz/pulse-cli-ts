@@ -1,9 +1,10 @@
-import { Command, flags } from '@oclif/command'
+import { flags } from '@oclif/command'
 import { CliUx } from '@oclif/core'
 import { green, cyan } from 'colors'
 import { network } from '../../storage/networks'
+import { TxCommand, verboseFlag } from '../../core/txCommand'
 
-export default class Transfer extends Command {
+export default class Transfer extends TxCommand {
   static description = 'Transfer tokens via pulse.token::transfer'
 
   static examples = [
@@ -21,6 +22,7 @@ export default class Transfer extends Command {
   static flags = {
     contract: flags.string({ char: 'c', default: 'pulse.token', description: 'Token contract' }),
     permission: flags.string({ char: 'p', default: 'active', description: 'Signing permission' }),
+    ...verboseFlag,
   }
 
   async run() {

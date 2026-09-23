@@ -58,5 +58,8 @@ export type ChainDiscoveryService = {
 
 export const EP_DISCOVERY: ChainDiscoveryService[] = [];
 
-// System account name — PulseVM's `eosio` equivalent.
-export const SYSTEM_ACCOUNT = "pulse";
+// System account: NOT a constant. PulseVM chains use `pulse` (Pulse-native,
+// e.g. Alpine) or `eosio` (migrated from Antelope; upstream's node setting
+// `system_account`). It is resolved per endpoint — --system flag, else the
+// cached value (system:set / previous detection), else auto-detected — see
+// src/storage/systemAccount.ts.

@@ -1,10 +1,11 @@
-import { Command, flags } from '@oclif/command'
+import { flags } from '@oclif/command'
 import { CliUx } from '@oclif/core'
 import { green, cyan, yellow } from 'colors'
 import { network } from '../../storage/networks'
+import { TxCommand, systemFlag, verboseFlag } from '../../core/txCommand'
 
-export default class CreateAccount extends Command {
-  static description = 'Create a new account, with RAM + CPU/NET provisioned, via pulse::newaccount + buyrambsys + delegatebw'
+export default class CreateAccount extends TxCommand {
+  static description = 'Create a new account, with RAM + CPU/NET provisioned, via the system account (pulse/eosio) newaccount + buyrambsys + delegatebw'
 
   static examples = [
     '$ pulse-ts create-account myapp PUB_K1_8d1vGnk...',
@@ -18,18 +19,21 @@ export default class CreateAccount extends Command {
   ]
 
   static flags = {
-    creator: flags.string({ char: 'c', default: 'pulse', description: 'Creator / payer account (must be in wallet)' }),
+    creator: flags.string({ char: 'c', description: 'Creator / payer account (must be in wallet). Default: the system account (pulse / eosio)' }),
     permission: flags.string({ char: 'p', default: 'active', description: 'Creator permission' }),
     'ram-bytes': flags.integer({ default: 8192, description: 'RAM bytes to buy for the new account (bump for contract accounts)' }),
     cpu: flags.string({ default: '1.0000 XPR', description: 'CPU stake to delegate' }),
     net: flags.string({ default: '1.0000 XPR', description: 'NET stake to delegate' }),
     'no-resources': flags.boolean({ default: false, description: 'Only newaccount — skip RAM/CPU/NET (account will be unusable until funded)' }),
+    ...systemFlag,
+    ...verboseFlag,
   }
 
   async run() {
     const { args, flags: f } = this.parse(CreateAccount)
     const activeKey = args.activeKey || args.ownerKey
-    const creator = f.creator
+    const system = await network.systemAccount(f.system)
+    const creator = f.creator || system
     const auth = { actor: creator, permission: f.permission }
     const authority = (key: string) => ({ threshold: 1, keys: [{ key, weight: 1 }], accounts: [], waits: [] })
 
@@ -37,7 +41,7 @@ export default class CreateAccount extends Command {
     // to transact. Bundle newaccount + buyrambsys + delegatebw in one tx, all
     // paid/staked by the creator.
     const actions: any[] = [{
-      account: 'pulse',
+      account: system,
       name: 'newaccount',
       authorization: [auth],
       data: { creator, name: args.name, owner: authority(args.ownerKey), active: authority(activeKey) },
@@ -45,13 +49,13 @@ export default class CreateAccount extends Command {
 
     if (!f['no-resources']) {
       actions.push({
-        account: 'pulse',
+        account: system,
         name: 'buyrambsys',
         authorization: [auth],
         data: { payer: creator, receiver: args.name, bytes: f['ram-bytes'] },
       })
       actions.push({
-        account: 'pulse',
+        account: system,
         name: 'delegatebw',
         authorization: [auth],
         data: {

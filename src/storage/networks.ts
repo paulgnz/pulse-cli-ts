@@ -28,6 +28,8 @@ import {green} from 'colors'
 import {networks} from '../constants'
 import {config} from './config'
 import passwordManager from './passwordManager'
+import {resolveSystemAccount} from './systemAccount'
+import {ChainRejection} from '../utils/chainError'
 
 type Endpoints = {
   chain: string;
@@ -40,6 +42,12 @@ type Endpoints = {
 // ----------------------------------------------------------------------------
 export class PulseRpc {
   constructor(public readonly api: PulseAPI, public chainId?: string) {}
+
+  // Raw JSON-RPC call returning the plain JSON result (no typed decode).
+  async call(method: string, params: any = {}): Promise<any> {
+    const apiAny = this.api as any
+    return toPlain(await apiAny.callRpc({ methodName: method, params }))
+  }
 
   async get_info(): Promise<any> {
     return toPlain(await this.api.getInfo())
@@ -322,6 +330,19 @@ class Network {
     return stock
   }
 
+  /** The endpoint RPC calls go to (first configured endpoint). */
+  get endpoint(): string {
+    return this.network.endpoints[0]
+  }
+
+  /**
+   * The chain's system account (`pulse` or `eosio`): --system override, else
+   * the per-endpoint cached value, else auto-detected and cached.
+   */
+  async systemAccount(override?: string): Promise<string> {
+    return resolveSystemAccount(this.rpc, this.endpoint, override)
+  }
+
   initialize() {
     const endpoint = this.network.endpoints[0]
     this.api = new PulseAPI(endpoint)
@@ -368,7 +389,7 @@ class Network {
     }).then((r: any) => r.json())
 
     if (resp.error) {
-      throw new Error(`Chain rejected: ${JSON.stringify(resp.error)}`)
+      throw new ChainRejection(resp.error)
     }
     return {
       transaction_id: resp.result?.txID ?? resp.result,

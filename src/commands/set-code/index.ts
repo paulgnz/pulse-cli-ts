@@ -1,11 +1,12 @@
-import { Command, flags } from '@oclif/command'
+import { flags } from '@oclif/command'
 import { CliUx } from '@oclif/core'
 import { green, cyan } from 'colors'
 import { readFileSync } from 'fs'
 import { network } from '../../storage/networks'
+import { TxCommand, systemFlag, verboseFlag } from '../../core/txCommand'
 
-export default class SetCode extends Command {
-  static description = 'Deploy a WASM contract to an account via pulse::setcode (signer must hold account@active)'
+export default class SetCode extends TxCommand {
+  static description = 'Deploy a WASM contract to an account via the system account (pulse/eosio) setcode (signer must hold account@active)'
 
   static examples = [
     '$ pulse-ts set-code myapp ./target/wasm32-unknown-unknown/release/myapp.wasm',
@@ -18,18 +19,21 @@ export default class SetCode extends Command {
 
   static flags = {
     permission: flags.string({ char: 'p', default: 'active', description: 'Signing permission' }),
+    ...systemFlag,
+    ...verboseFlag,
   }
 
   async run() {
     const { args, flags: f } = this.parse(SetCode)
 
+    const system = await network.systemAccount(f.system)
     const wasm = readFileSync(args.wasmFile)
     const codeHex = wasm.toString('hex')
-    CliUx.ux.action.start(`setcode ${cyan(args.account)} (${(wasm.length / 1024).toFixed(1)} KB)`)
+    CliUx.ux.action.start(`${system}::setcode ${cyan(args.account)} (${(wasm.length / 1024).toFixed(1)} KB)`)
 
     const result = await network.transact({
       actions: [{
-        account: 'pulse',
+        account: system,
         name: 'setcode',
         authorization: [{ actor: args.account, permission: f.permission }],
         data: {

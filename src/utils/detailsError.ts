@@ -41,7 +41,7 @@ const ERROR_HINTS: { pattern: RegExp | string; hint: string }[] = [
   },
 ]
 
-const getHintForError = (errorMessage: string): string | null => {
+export const getHintForError = (errorMessage: string): string | null => {
   for (const { pattern, hint } of ERROR_HINTS) {
     if (typeof pattern === 'string') {
       if (errorMessage.toLowerCase().includes(pattern.toLowerCase())) {
