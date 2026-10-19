@@ -3,17 +3,11 @@
 // chainId here is only the preset's expectation: endpoint:set stores the
 // chain_id the endpoint actually reports, and signing always uses the live
 // chain_id of the endpoint being used (see src/utils/chainId.ts).
+//
+// The XPR 1:1 demo network preset (`pulse-1to1`) was removed when that
+// network was retired (2026-10-19). Point at any other PulseVM endpoint with
+// `endpoint:set <url>`.
 export const networks = [
-  {
-    // XPR 1:1 demo network — a PulseVM chain imported from an XPR-testnet
-    // snapshot (system account `eosio`; chain_id cloned from XPR testnet for
-    // 1:1 parity). RPC serves raw pulsevm.* JSON-RPC.
-    // Hyperion: https://xpr-hyperion-testnet.pulsevm.dev
-    chain: "pulse-1to1",
-    endpoints: ["https://xpr-rpc-testnet.pulsevm.dev"],
-    chainId:
-      "71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abeaf3d3dd",
-  },
   {
     // A-Chain Alpine — XPR Network's Pulse-native PulseVM testnet on Metal
     // Tahoe (system account `pulse`).

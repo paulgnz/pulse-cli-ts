@@ -43,7 +43,7 @@ pulse-ts --help
 
 ## Quick start
 
-Default network (fresh config) is **`pulse-1to1`**, the XPR 1:1 demo chain, RPC `https://xpr-rpc-testnet.pulsevm.dev`. Other presets: `alpine` (A-Chain Alpine on Tahoe, `https://a-chain-alpine.metalblockchain.org/ext/bc/yQUjkpNYeiJZEn1daa7dQJbysxdXLtz1QhTTdu1mwaxoEJwiJ/rpc`) and `local` (your own MetalGo node) — switch with `chain:set <name>`.
+Default network (fresh config) is **`alpine`** (A-Chain Alpine on Tahoe, `https://a-chain-alpine.metalblockchain.org/ext/bc/yQUjkpNYeiJZEn1daa7dQJbysxdXLtz1QhTTdu1mwaxoEJwiJ/rpc`). The other preset is `local` (your own MetalGo node) — switch with `chain:set <name>`, or point at any PulseVM endpoint with `endpoint:set <url>`. (The `pulse-1to1` preset for the XPR 1:1 demo network was removed when that network was retired; XPR→PulseVM cutover testing is in progress.)
 
 `endpoint:set <url>` reads the endpoint's `chain_id` via `pulsevm.getInfo` and stores it (warning if it differs from the preset's), and transactions are always signed for the chain_id the endpoint reports — a custom endpoint never inherits a preset's chain_id.
 
@@ -117,13 +117,13 @@ PulseVM chains call their system account either **`pulse`** (Pulse-native chains
 3. otherwise auto-detect: probe `pulse` and `eosio` with `pulsevm.getAccount` / `pulsevm.getABI` / `pulsevm.getCodeHash` and pick the one that has an ABI or code (privileged wins ties), then cache it.
 
 ```bash
-$ pulse-ts system:get --detect        # on the pulse-1to1 demo chain (xpr-rpc-testnet.pulsevm.dev)
+$ pulse-ts system:get --detect        # on a chain migrated from Antelope
 pulse  exists=false privileged=false abi=false code=false
 eosio  exists=true privileged=true abi=true code=true
 detected: eosio  cached: (none)
 
 $ pulse-ts system:get
-system account: eosio  (auto-detected, now cached for https://xpr-rpc-testnet.pulsevm.dev)
+system account: eosio  (auto-detected, now cached for https://<your-pulsevm-rpc>)
 
 $ pulse-ts system:set pulse            # pin it by hand
 $ pulse-ts system:set --reset          # forget it; auto-detect on next use
@@ -194,7 +194,7 @@ npm run test:unit   # authority sorting/validation, native action data shapes, s
 - `src/compat/proton-js.ts` — re-exports pulsevm-js types under `@proton/js` names (`Key`, `Numeric`, `Serialize`, `RpcInterfaces`, `ApiInterfaces`) so the upstream proton-cli command files compile unchanged.
 - `src/storage/systemAccount.ts` + `src/utils/systemDetect.ts` — per-endpoint system-account resolution (flag → cache → auto-detect).
 - `src/utils/authority.ts` / `src/utils/nativeActions.ts` — chain-ordered authority building and the embedded ABI for the native auth actions.
-- `src/constants.ts` — network presets (`pulse-1to1` default, `alpine`, `local`).
+- `src/constants.ts` — network presets (`alpine` default, `local`).
 
 ## License
 

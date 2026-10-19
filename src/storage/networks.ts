@@ -241,7 +241,7 @@ class Network {
   }
 
   get chain(): string {
-    // Fresh config / unknown saved chain -> first preset (pulse-1to1).
+    // Fresh config / unknown saved chain -> first preset (alpine).
     const saved = config.get('currentChain') as string
     const overrides = (config.get('endpoints') as Endpoints[]) || []
     if (saved && (networks.some(n => n.chain === saved) || overrides.some(o => o.chain === saved))) return saved

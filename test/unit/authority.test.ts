@@ -58,7 +58,7 @@ describe('authority: chain ordering', () => {
     expect(ours[ours.length - 1]).to.equal(K_R1)
   })
   it('reproduces the order the chain stored for eosio@owner keys', () => {
-    // live pulse-1to1 chain: eosio owner keys as returned by pulsevm.getAccount
+    // a migrated (eosio) chain: eosio owner keys as returned by pulsevm.getAccount
     expect([K_B, K_A].sort(compareKeys)).to.deep.equal([K_A, K_B])
   })
   it('orders accounts by (actor, permission) name value, not by "actor@perm" string', () => {
